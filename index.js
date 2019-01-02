@@ -32,7 +32,8 @@ global.db = db;
 // Routes
 
 app.get('/', function(req, res){
-	res.sendFile(__dirname + '/index.html');
+	res.status(200).json({ success: true, test: true });
+	// res.sendFile(__dirname + '/index.html');
 });
 
 app.post('/api/register', function(req, res){
