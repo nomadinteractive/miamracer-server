@@ -1,0 +1,187 @@
+<!doctype html>
+<html>
+<head>
+	<title>MiamRacer Game Simulation</title>
+	<style>
+		* { margin: 0; padding: 0; box-sizing: border-box; }
+		body { padding:50px; font: 15px/40px Helvetica, Arial; }
+		.color { display: inline-block; width: 50px; height: 50px; border-radius: 50px; box-shadow: #000000 0 0 2px; }
+		.red { background-color: #FF0000; }
+		.blue { background-color: #0000FF; }
+		.green { background-color: #51F801; }
+		.orange { background-color: #FF7200; }
+		.yellow { background-color: #F8D52D; }
+		.pink { background-color: #F8017C; }
+		.purple { background-color: #BF00FE; }
+		.brown { background-color: #6B2504; }
+		.gray { background-color: #BCBCBC; }
+		.black { background-color: #000000; }
+		.white { background-color: #FFFFFF; }
+		.navy { background-color: #172A55; }
+		#answer_wrapper { display: none; }
+	</style>
+</head>
+<body>
+	<h1>Game Simulation</h1>
+	Device Id <input type="text" id="deviceId" value="123456" size="10" /> 
+	&nbsp; - &nbsp; 
+	<a href="javascript:register();">Register</a>
+	&nbsp; - &nbsp; 
+	<a href="javascript:startSolo();">Start Solo Game</a>
+
+	<br>
+	<br>
+	<hr>
+	<br>
+
+	<div id="question"></div>
+	<div id="answer_wrapper">
+		Answer: <br>
+		<select name="answer" id="answer" size="12"></select> 
+	</div>
+
+
+	<script src="/socket.io/socket.io.js"></script>
+	<script src="https://code.jquery.com/jquery-1.11.1.js"></script>
+	<script>
+		var deviceId = 0;
+		var gameChannel = null;
+		var colors = ['red','blue','green','orange','yellow','pink','purple','brown','gray','black','white','navy'];
+		var answerTimeout = null;
+		var expectedAnswer = null;
+		var socket = null;
+
+		function register(){
+			alert(deviceId); return;
+			$.ajax({
+				url: '/api/register',
+				method: 'post',
+				headers: { token: deviceId },
+				success: function(data){
+					console.log(data);
+				}
+			});
+		}
+		
+		function startSolo(){
+			$.ajax({
+				url: '/api/game/solo',
+				method: 'put',
+				headers: { token: deviceId },
+				success: function(data){
+					console.log(data);
+					gameChannel = data.channel;
+					gameStartSocket(gameChannel);
+					$('#question').html("Waiting the game to start...");
+				}
+			});
+		}
+
+		function gameStartSocket (channel) {
+			console.log("game socket channel", channel);
+			socket = io();
+			socket.emit('join-game', {
+				deviceId: deviceId,
+				channel: channel
+			});
+
+			socket.on('question', function(data){
+				console.log('question data received:');
+				console.log(data);
+				renderQuestion(data);
+				expectedAnswer = data.answer;
+			});
+			socket.on('game-ended', function(data){
+				console.log('game results received:', data);
+				socket.close();
+				renderEndGame(data);
+			});
+		}
+
+		function renderEndGame(data){
+			var points = data.leaderboard[deviceId].points;
+			if (typeof points === 'undefined') points = 'no';
+			$('#question').html('<h2>Game ended!</h2>You scored ' + points + ' points!')
+		}
+
+		function renderQuestion(question){
+			var countdownItr = 3;
+			$('#question').html('<h1>' + countdownItr + '</h1>');
+			var countdown = setInterval(function(){
+				countdownItr--;
+				$('#question').html('<h1>' + countdownItr + '</h1>');
+				if (countdownItr == 0) {
+					clearInterval(countdown);
+				}
+			}, 1000);
+
+			setTimeout(function(){
+				$('#question').html('<h2>Select the color below (<span id="answerTimer"></span>):</h2>\
+					<div><span class="color ' + question.answer + '"><span></div>');
+
+				renderSelectList();
+				$('#answer_wrapper').show();
+
+				var answerCountdownItr = question.answerTiming * 10;
+				$('#answerTimer').html(Math.round(answerCountdownItr/10));
+				var answerTimer = setInterval(function(){
+					answerCountdownItr--;
+					$('#answerTimer').html(answerCountdownItr/10);
+					if (answerCountdownItr == 0) {
+						clearInterval(answerTimer);
+					}
+				}, 100);
+			}, 3000);
+
+			answerTimeout = setTimeout(function(){
+				$('#question').html('<h2>Time is up! You missed it!</h2> Waiting for results and next question');
+				$('#answer_wrapper').hide();
+			}, 6000);
+		}
+
+		function shuffle(a) {
+			var j, x, i;
+			for (i = a.length - 1; i > 0; i--) {
+				j = Math.floor(Math.random() * (i + 1));
+				x = a[i];
+				a[i] = a[j];
+				a[j] = x;
+			}
+			return a;
+		}
+
+		function renderSelectList(){
+			var colorsRandom = shuffle(colors);
+			// console.log(colorsRandom);
+			var str = '';
+
+			for (i in colorsRandom) {
+				str += '<option value="' + colorsRandom[i] + '">' + colorsRandom[i] + '</option>';
+			}
+
+			$('#answer').html(str);
+		}
+
+		function gameAnswer (answer) {
+			clearTimeout(answerTimeout);
+			$('#question').html('<h2>' + (answer == expectedAnswer ? '👍 Correct!!' : '😡 Wrong!!') + '</h2> Waiting for next question...');
+			$('#answer_wrapper').hide();
+
+			var data = {
+				deviceId: deviceId,
+				channel: gameChannel,
+				selected: answer
+			}
+			socket.emit('answer', data);
+			console.log('answer data sent...');
+		}
+
+		$(function(){
+			deviceId = $('#deviceId').val();
+			$('#answer').on('change', function(){
+				gameAnswer(this.value);
+			})
+		});
+	</script>
+</body>
+</html>
